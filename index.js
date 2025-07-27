@@ -1,30 +1,52 @@
 import AIBrowserAgent from "./ai-browser-agent.js";
 import fs from "fs";
 
-
 (async () => {
-
-  let userPrompt;
-  try {
-    userPrompt = await fs.promises.readFile("userPrompt.txt", "utf-8");
-  } catch {
-    userPrompt = "";
+  async function readPromptFile() {
+    try {
+      const data = await fs.promises.readFile("userPrompt.txt", "utf-8");
+      return data.trim();
+    } catch (error) {
+      console.error("Error reading userPrompt.txt:", error);
+      return "";
+    }
   }
 
-  if(!userPrompt || userPrompt.trim() === "") {
-    userPrompt = "Search for the latest video on YouTube about AI and click on it.";
+  async function wait() {
+    return new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
   const agent = new AIBrowserAgent({ headless: false, browserTimeout: 5000 });
   try {
-    let result = await agent.execute(userPrompt);
-    if(!result.success) 
-      throw result.message || "Failed to execute task";
+    let prevPrompt = "";
+    while (true) {
+      
+
+         try{
+
+              const userPrompt = await readPromptFile();
+              if (!userPrompt || userPrompt === prevPrompt) {
+                console.log("No user prompt found, waiting...");
+                await wait(1000); // Wait before checking again
+                continue; // Skip to the next iteration
+              }
+              prevPrompt = userPrompt; // Update previous prompt
+              
+              const result = await agent.execute(userPrompt);
+              if (!result.success) {
+                console.log("❌ Error executing task:", result.message);
+                continue; // Skip to the next iteration
+              }
+
+              console.log("AI Success Response:", result.message);
+
+         }catch(error){
+              console.error("AI Error:", error.message);
+
+         }
 
 
-    console.log("AI Response:", result.message);
-    //await agent.execute("Click on the latest video");
-    
+    }
   } catch (err) {
     console.error("❌ Error:", err);
   } finally {
