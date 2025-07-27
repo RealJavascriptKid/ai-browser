@@ -6,18 +6,31 @@ dotenv.config();
 export default class AIBrowserAgent {
   constructor(config = {}) {
     this.headless = config.headless ?? true;
-    this.verbose = config.verbose ?? true;    
+    this.useComputerUseModel = config.useComputerUseModel || false;
+    this.verbose = config.verbose ?? true;
     this.browserTimeout = config.browserTimeout ?? 30000;
+    this.maxSteps = config.maxSteps ?? 20;
+    this.instructions = config.instructions || "You are a helpful assistant that can use a web browser. Do not ask follow-up questions.";
+    
     this.stagehand = null;
     this.agent = null;
 
-    // 🧠 Memory to store previous interactions
+    // 🧠 In-memory context
     this.memory = [];
   }
 
-  // Initialize Stagehand browser automation
   async init() {
     if (this.stagehand) return;
+
+    let computerUseSettings = {};
+    if (this.useComputerUseModel) {
+      computerUseSettings = {
+        localBrowserLaunchOptions: {
+          viewport: { width: 1024, height: 768 }, // required for computer-use agent
+          headless: this.headless,
+        }
+      };
+    }
 
     this.stagehand = new Stagehand({
       env: "LOCAL",
@@ -25,15 +38,31 @@ export default class AIBrowserAgent {
       modelClientOptions: {
         apiKey: process.env.OPENAI_API_KEY,
       },
+      ...computerUseSettings
     });
 
     await this.stagehand.init();
-    this.agent = this.stagehand.agent();
 
-    if (this.verbose) console.log("✅ Stagehand initialized");
+    if(this.useComputerUseModel){
+      this.agent = this.stagehand.agent({
+            provider: "openai",
+            model: "computer-use-preview",
+            instructions: this.instructions,
+            options: {
+              apiKey: process.env.OPENAI_API_KEY,
+            }
+          });
+
+          if (this.verbose) console.log("✅ Stagehand initialized with computer-use agent");
+
+    }else{
+      this.agent = this.stagehand.agent();
+
+      if (this.verbose) console.log("✅ Stagehand initialized with default agent");
+    }    
+    
   }
 
-  // Close Stagehand and clear memory
   async close() {
     this.clear();
     if (this.stagehand) {
@@ -42,36 +71,37 @@ export default class AIBrowserAgent {
     }
   }
 
-  // Clear internal memory
   clear() {
-    this.memory = []; // 🧠 Clear memory
+    this.memory = [];
     if (this.verbose) console.log("🧠 Memory cleared");
   }
 
-  // Execute browser actions based on the given prompt
   async execute(userPrompt) {
     await this.init();
 
-    // 🧠 Compose memory into context
+    // 🧠 Include previous interactions in the context
     const memoryContext = this.memory.map(
       ({ input, output }) => `User: ${input}\nAI: ${output}`
     ).join("\n");
 
-    const contextualPrompt = memoryContext
+    const fullPrompt = memoryContext
       ? `${memoryContext}\nUser: ${userPrompt}\nAI:`
-      : `User: ${userPrompt}\nAI:`;
+      : `User: ${userPrompt}`;
 
     try {
-      const result = await this.agent.execute(contextualPrompt);
+      const result = await this.agent.execute(fullPrompt, {
+        maxSteps: this.maxSteps,
+      });
 
-      if (result && result.success) {
+
+      if (result.success) {
         if (this.verbose) console.log("✅ Task executed successfully");
-
-        // 🧠 Store this interaction in memory
         this.memory.push({
           input: userPrompt,
-          output: result.message || "[No output]", // Adjust based on actual result shape
+          output: result.message || "[No output]",
         });
+      } else {
+        if (this.verbose) console.log("⚠️ Agent failed to complete task");
       }
 
       return result;

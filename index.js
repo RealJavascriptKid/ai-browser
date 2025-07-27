@@ -16,7 +16,7 @@ import fs from "fs";
     return new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
-  const agent = new AIBrowserAgent({ headless: false, browserTimeout: 5000 });
+  const agent = new AIBrowserAgent({ useComputerUseModel: false,headless: false, browserTimeout: 5000 });
   try {
     let prevPrompt = "";
     while (true) {
