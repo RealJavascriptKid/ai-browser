@@ -115,11 +115,11 @@ export class AIBrowserAgent {
 
     switch (act) {
       case "click":
-        await this.page.waitForSelector(selector, { timeout: this.browserTimeout }); // 🔧
+        await this.page.waitForSelector(selector, { timeout: this.browserTimeout });
         await this.page.click(selector);
         break;
       case "type":
-        await this.page.waitForSelector(selector, { timeout: this.browserTimeout }); // 🔧
+        await this.page.waitForSelector(selector, { timeout: this.browserTimeout });
         await this.page.type(selector, text || "");
         break;
       case "navigate":
@@ -130,13 +130,20 @@ export class AIBrowserAgent {
     }
 
     if (this.verbose) console.log(`✅ Action performed: ${act} on ${selector}`);
+
+    // ✅ Add tool message to fulfill tool_call
+    this.memory.push({
+      role: "tool",
+      tool_call_id: toolCall.id,
+      content: `✅ Action ${act} on ${selector} completed successfully.`
+    });
   }
 }
 
 // Example usage
 
 (async () => {
-  const agent = new AIBrowserAgent({ headless: false, browserTimeout: 120000 }); // 🔧 Increased timeout to 120s
+  const agent = new AIBrowserAgent({ headless: false, browserTimeout: 120000 });
   try {
     await agent.execute("Search for MrBeast on YouTube and click his channel", {
       //url: "https://www.youtube.com"
