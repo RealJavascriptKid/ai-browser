@@ -10,7 +10,12 @@
   "dependencies": {
     "dotenv": "^16.6.1",
     "openai": "^5.10.2",
-    "puppeteer": "^24.15.0"
+    "puppeteer": "^24.15.0",
+    
+     "@browserbasehq/stagehand": "^2.4.1",
+    "@playwright/test": "^1.54.1",
+    "playwright": "^1.54.1",
+    "stagehand": "^1.0.1"
   },
   "engines": {
     "node": ">=18.0.0"
