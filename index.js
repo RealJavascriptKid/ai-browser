@@ -1,112 +1,150 @@
 // ai-browser-agent.js
-import { Stagehand } from "@browserbasehq/stagehand";
+import puppeteer from "puppeteer";
 import dotenv from "dotenv";
+import OpenAI from "openai";
 dotenv.config();
 
-class AIBrowserAgent {
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+export class AIBrowserAgent {
   constructor(config = {}) {
-    this.stagehand = new Stagehand({
-      apiKey: process.env.OPENAI_API_KEY,
-      ...config,
-      modelName: config.modelName || "openai/gpt-4o",
-      env: config.env || "LOCAL",
-      headless: config.headless !== false // default true
-    });
-    this.initialized = false;
-    this.defaultWaitConditions = ['networkidle'];
-    this.defaultTimeout = 30000; // 30 seconds
+    this.headless = config.headless ?? true;
+    this.model = config.model || "gpt-4o";
+    this.browser = null;
+    this.page = null;
+    this.verbose = config.verbose ?? true;
+    this.memory = [];
+    this.browserTimeout = config.browserTimeout ?? 30000; // 🔧 Default timeout 30s
   }
 
-  async initialize() {
-    if (!this.initialized) {
-      await this.stagehand.init();
-      this.initialized = true;
-      console.log("Stagehand initialized");
-    }
-    return this;
-  }
-
-  async executeTask(userPrompt, options = {}) {
-    try {
-      await this.initialize();
-      
-      const page = this.stagehand.page;
-      const agent = this.stagehand.agent();
-
-      // Handle URL navigation if provided
-      if (options.url) {
-        console.log(`Navigating to: ${options.url}`);
-        await page.goto(options.url, {
-          timeout: options.timeout || this.defaultTimeout,
-          waitUntil: options.waitConditions || this.defaultWaitConditions
-        });
-      }
-
-      // Execute the AI command
-      console.log(`Executing: "${userPrompt}"`);
-      const result = await agent.execute(userPrompt);
-      
-      // Additional wait if specified
-      if (options.postDelay) {
-        await page.waitForTimeout(options.postDelay);
-      }
-
-      return {
-        success: true,
-        message: "Task completed successfully",
-        result
-      };
-    } catch (error) {
-      console.error("Error executing task:", error);
-      return {
-        success: false,
-        message: error.message,
-        error
-      };
-    }
+  async init() {
+    this.#initMemory();
+    this.browser = await puppeteer.launch({ headless: this.headless });
+    this.page = await this.browser.newPage();
+    if (this.verbose) console.log("✅ Browser launched");
   }
 
   async close() {
-    if (this.initialized) {
-      await this.stagehand.close();
-      this.initialized = false;
-      console.log("Browser closed");
+    this.clear();
+    if (this.browser) {
+      await this.browser.close();
+      if (this.verbose) console.log("🛑 Browser closed");
     }
+  }
+
+  #initMemory(){
+     this.memory = [
+          {
+            role: "system",
+            content: `You are a web automation agent. You can interact with the current webpage DOM. Suggest the best next action to achieve the user's instruction.`
+          }
+        ];
+  }
+
+  clear() {
+    this.#initMemory();
+    if (this.verbose) console.log("🧠 Memory cleared");
+  }
+
+  async execute(userPrompt, options = {}) {
+    if (!this.browser || !this.page) await this.init();
+
+    if (options.url) {
+      await this.page.goto(options.url, { waitUntil: "networkidle0", timeout: this.browserTimeout }); // 🔧
+      if (this.verbose) console.log(`🌐 Navigated to: ${options.url}`);
+    }
+
+    const domContent = await this.page.content();
+
+    this.memory.push({
+      role: "user",
+      content: `Instruction: ${userPrompt}\n\nDOM Snapshot:\n${domContent.slice(0, 8000)}...`
+    });
+
+    let response;
+    try {
+      response = await openai.chat.completions.create({
+        model: this.model,
+        messages: this.memory,
+        temperature: 0.2,
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "web_action",
+              description: "Perform a web automation action",
+              parameters: {
+                type: "object",
+                properties: {
+                  action: {
+                    type: "string",
+                    enum: ["click", "type", "navigate"]
+                  },
+                  selector: {
+                    type: "string",
+                    description: "CSS selector to act on. URL to navigate to if action is 'navigate'",
+                  },
+                  text: {
+                    type: "string",
+                    description: "Text to type (if action is type)",
+                    nullable: true
+                  }
+                },
+                required: ["action", "selector"]
+              }
+            }
+          }
+        ],
+        tool_choice: "auto"
+      });
+    } catch (err) {
+      console.error("❌ OpenAI call failed:", err);
+      throw err;
+    }
+
+    const toolCall = response.choices[0]?.message?.tool_calls?.[0];
+    if (!toolCall) throw new Error("No tool call returned by AI");
+
+    const action = JSON.parse(toolCall.function.arguments);
+    if (this.verbose) console.log("🤖 AI Action:", action);
+
+    this.memory.push({ role: "assistant", tool_calls: [toolCall] });
+
+    const { action: act, selector, text } = action;
+    if (!selector) throw new Error("No selector provided by AI");
+
+    switch (act) {
+      case "click":
+        await this.page.waitForSelector(selector, { timeout: this.browserTimeout }); // 🔧
+        await this.page.click(selector);
+        break;
+      case "type":
+        await this.page.waitForSelector(selector, { timeout: this.browserTimeout }); // 🔧
+        await this.page.type(selector, text || "");
+        break;
+      case "navigate":
+        await this.page.goto(selector, { waitUntil: "networkidle0", timeout: this.browserTimeout });
+        break;
+      default:
+        throw new Error(`Unsupported action: ${act}`);
+    }
+
+    if (this.verbose) console.log(`✅ Action performed: ${act} on ${selector}`);
   }
 }
 
 // Example usage
+
 (async () => {
-  const aiAgent = new AIBrowserAgent({
-    headless: false, // Show browser window
-    modelName: "openai/gpt-4-turbo", // Alternative model
-    browserPath: "C:/Program Files/Google/Chrome/Application/chrome.exe"
-  });
-
+  const agent = new AIBrowserAgent({ headless: false, browserTimeout: 120000 }); // 🔧 Increased timeout to 120s
   try {
-    // Example 1: YouTube subscription
-    await aiAgent.executeTask(
-      "Find and navigate to MrBeast's YouTube channel and Subscribe to it", 
-      {
-        url: "https://www.youtube.com",
-        postDelay: 2000 // Wait 2 seconds after completion
-      }
-    );
-
-    // Example 2: Google search (showing how to chain tasks)
-    const searchResult = await aiAgent.executeTask(
-      "Search for 'latest AI advancements 2024' and summarize the first page results",
-      {
-        url: "https://www.google.com",
-        waitConditions: ['load', 'networkidle']
-      }
-    );
-    
-    console.log("Search Summary:", searchResult.result);
-
-  } catch (error) {
-    console.error("Main error:", error);
+    await agent.execute("Search for MrBeast on YouTube and click his channel", {
+      //url: "https://www.youtube.com"
+    });
+    await agent.execute("Click on the latest video");
+  } catch (err) {
+    console.error("❌ Error:", err);
   } finally {
-    await aiAgent.close();
+    await agent.close();
   }
 })();
