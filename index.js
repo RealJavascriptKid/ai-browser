@@ -1,30 +1,23 @@
 import AIBrowserAgent from "./ai-browser-agent.js";
+import fs from "fs";
 
 
 (async () => {
+
+  let userPrompt;
+  try {
+    userPrompt = await fs.promises.readFile("userPrompt.txt", "utf-8");
+  } catch {
+    userPrompt = "";
+  }
+
+  if(!userPrompt || userPrompt.trim() === "") {
+    userPrompt = "Search for the latest video on YouTube about AI and click on it.";
+  }
+
   const agent = new AIBrowserAgent({ headless: false, browserTimeout: 5000 });
   try {
-    let result = await agent.execute(`Go to localhost:3000 and find pages that has any form input fields. 
-      Please return result in JSON format with the following structure: 
-      { 
-      'pageTitle': 'title', 
-      'pageUrl': 'url', 
-       'forms':[{
-          'formTitle': 'title', 
-          'formUrl': 'url', 
-          'formDescription': 'description', 
-          'formAction': 'actionUrl', 
-          'formMethod': 'GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD|TRACE',
-          'formInputs': [{
-            inputName: 'name',
-            inputType: 'text|email|password|checkbox|radio|select',
-            inputPlaceholder: 'placeholder',
-            inputValue: 'value'
-          }],
-        ... 
-       ]
-      }
-      `);
+    let result = await agent.execute(userPrompt);
     if(!result.success) 
       throw result.message || "Failed to execute task";
 
