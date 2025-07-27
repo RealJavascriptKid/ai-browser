@@ -9,14 +9,27 @@ import AIBrowserAgent from "./ai-browser-agent.js";
       { 
       'pageTitle': 'title', 
       'pageUrl': 'url', 
-      'formFields': ['field1', 'field2'] 
+       'forms':[{
+          'formTitle': 'title', 
+          'formUrl': 'url', 
+          'formDescription': 'description', 
+          'formAction': 'actionUrl', 
+          'formMethod': 'GET|POST|PUT|DELETE|PATCH|OPTIONS|HEAD|TRACE',
+          'formInputs': [{
+            inputName: 'name',
+            inputType: 'text|email|password|checkbox|radio|select',
+            inputPlaceholder: 'placeholder',
+            inputValue: 'value'
+          }],
+        ... 
+       ]
       }
       `);
     if(!result.success) 
       throw result.message || "Failed to execute task";
 
 
-    console.log("AI Response:", result);
+    console.log("AI Response:", result.message);
     //await agent.execute("Click on the latest video");
     
   } catch (err) {
